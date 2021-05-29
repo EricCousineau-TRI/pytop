@@ -52,6 +52,9 @@ def custom_process_sorting_key(p):
 
 def custom_process_filter(p):
     cmd = p.full_command
+    if "framos" in cmd and p.num_threads == -1:
+        # Meh.
+        return False
     if "bazel(anzu)" in cmd:
         return False
     if "java" in cmd:
