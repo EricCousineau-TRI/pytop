@@ -6,6 +6,7 @@ setup(
     version='1.0.0',
     packages=['pytop'],
     install_requires=[
+        'psutil>=5.8.0',
         'urwid>=2.1.0',
     ],
     extra_requires={
