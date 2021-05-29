@@ -51,9 +51,10 @@ def custom_process_sorting_key(p):
     )
 
 def custom_process_filter(p):
-    assert isinstance
     cmd = p.full_command
     if "bazel(anzu)" in cmd:
+        return False
+    if "java" in cmd:
         return False
     if "/anzu/" in cmd:
         return True
@@ -62,6 +63,8 @@ def custom_process_filter(p):
     if "nv_queue" in cmd:
         return True
     if "nvidia" in cmd:
+        return True
+    if affinity_str(p.cpu_affinity) != "":
         return True
     return False
 
@@ -74,7 +77,7 @@ def get_cols():
         ProcessColumn("NLWP", "{:<6}", lambda pr: f"{pr.num_threads}"),
         ProcessColumn("Sched", "{:<10}", lambda pr: sched_str(pr.scheduler)),
         ProcessColumn("Prio", "{:<6}", lambda pr: str(pr.priority)),
-        ProcessColumn("CPU Affinity", "{:<13}", lambda pr: affinity_str(pr.cpu_affinity)),
+        ProcessColumn("CPU Affinity", "{:<15}", lambda pr: affinity_str(pr.cpu_affinity)),
         ProcessColumn("Command", "{:<60}", lambda pr: reformat_command(pr.command)[:60]),
     ]
 
@@ -130,16 +133,17 @@ class ProcessesController:
     def __init__(self):
         self._process_map = dict()
 
-    def update(self, process_filter):
+    def update(self, process_filter, with_threads):
         # Filter can't use parent info.
         actual_pids = set()
-        for p, thread_parent in process_iter():
-            actual_pids.add(p.pid)
-            if p.pid not in self._process_map:
-                process = Process(p.pid)
-            else:
-                process = self._process_map[p.pid]
-            process.update(p)
+        for p, thread_parent in process_iter(with_threads):
+            with p.oneshot():
+                actual_pids.add(p.pid)
+                if p.pid not in self._process_map:
+                    process = Process(p.pid)
+                else:
+                    process = self._process_map[p.pid]
+                process.update(p)
             if thread_parent is not None:
                 process.ppid = thread_parent.pid
                 process.num_threads = -1
@@ -261,16 +265,25 @@ class Application:
         self.w_tree = urwid.Button([('normal', 'F3 '), ('foot', ' Flat ')])
         urwid.connect_signal(self.w_tree, 'click', self.tree)
 
+        self.w_thread = urwid.Button([('normal', 'F4 '), ('foot', ' Threads ')])
+        urwid.connect_signal(self.w_thread, 'click', self.thread)
+
         self.w_quit = urwid.Button([('normal', 'F10 '), ('foot', ' Quit ')])
         urwid.connect_signal(self.w_quit, 'click', self.quit)
 
         # widgets
-        self.buttons = urwid.Columns([self.w_pause, self.w_tree, self.w_quit])
+        self.buttons = urwid.Columns([
+            self.w_pause,
+            self.w_tree,
+            self.w_thread,
+            self.w_quit,
+        ])
         self.processes_list = ProcessPanel(self.processes)
         self.main_widget = urwid.Frame(self.processes_list, footer=self.buttons)
 
         self._tree = True
         self._paused = False
+        self._thread = False
         self.loop = urwid.MainLoop(
             self.main_widget,
             self.palette,
@@ -280,7 +293,7 @@ class Application:
 
     def refresh(self, _1, _2):
         if not self._paused:
-            self.processes.update(custom_process_filter)
+            self.processes.update(custom_process_filter, self._thread)
         self.processes_list.refresh(tree=self._tree)
         self.loop.set_alarm_in(self.refresh_rate_sec, self.refresh)
 
@@ -302,6 +315,12 @@ class Application:
         text = text_map[self._tree]
         self.w_tree.set_label([('normal', 'F3 '), ('foot', text)])
 
+    def thread(self, key=None):
+        text_map = {False: " Threads ", True: " No Threads "}
+        self._thread = not self._thread
+        text = text_map[self._thread]
+        self.w_thread.set_label([('normal', 'F4 '), ('foot', text)])
+
     def handle_input(self, key):
         if type(key) == str:
             if key in ('q', 'Q', 'f10'):
@@ -312,6 +331,8 @@ class Application:
                 self.pause()
             if key == 'f3':
                 self.tree()
+            if key == 'f4':
+                self.thread()
         elif type(key) == tuple:
             pass
 
@@ -360,21 +381,24 @@ def affinity_str(cpus, cpu_count=None):
     return f"[{inner}]"
 
 
-def process_iter():
+def process_iter(with_threads):
     """
     Like psutil.process_iter(), but add threads in.
     Returns (p, None) if process; returns (t, p) if thread.
     """
     for p in psutil.process_iter():
-        with p.oneshot():
-            yield p, None
+        yield p, None
+        if not with_threads:
+            continue
         # Include threads.
         for thread in p.threads():
             if thread.id == p.pid:
                 continue
-            t = psutil.Process(thread.id)
-            with t.oneshot():
+            try:
+                t = psutil.Process(thread.id)
                 yield t, p
+            except psutil.NoSuchProcess:
+                continue
 
 
 def sched_str(sched):
