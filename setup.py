@@ -5,6 +5,11 @@ setup(
     name="pytop",
     version='1.0.0',
     packages=['pytop'],
+    entry_points={
+        "console_scripts": [
+            "pytop=pytop:main",
+        ],
+    },
     install_requires=[
         'psutil>=5.8.0',
         'urwid>=2.1.0',
