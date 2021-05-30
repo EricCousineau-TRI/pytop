@@ -48,6 +48,8 @@ def custom_process_sorting_key(p):
         _sched_sorting_key(p.scheduler),
         -p.priority,
         human_sorting_key(p.command),
+        # Add in PID to disambiguate.
+        p.pid,
     )
 
 def custom_process_filter(p):
@@ -69,12 +71,19 @@ def custom_process_filter(p):
     return False
 
 
+def num_threads_str(value):
+    if value == -1:
+        return "-"
+    else:
+        return str(value)
+
+
 def get_cols():
     return [
         ProcessColumn("USER", "{:<11}", lambda pr: f"{pr.user[:9]}"),
         ProcessColumn("PID", "{:<7}", lambda pr: f"{pr.pid}"),
         ProcessColumn("CPU%", "{:<10}", lambda pr: f"{pr.cpu_percent}"),
-        ProcessColumn("NLWP", "{:<6}", lambda pr: f"{pr.num_threads}"),
+        ProcessColumn("NLWP", "{:<6}", lambda pr: num_threads_str(pr.num_threads)),
         ProcessColumn("Sched", "{:<10}", lambda pr: sched_str(pr.scheduler)),
         ProcessColumn("Prio", "{:<6}", lambda pr: str(pr.priority)),
         ProcessColumn("CPU Affinity", "{:<15}", lambda pr: affinity_str(pr.cpu_affinity)),
@@ -143,7 +152,10 @@ class ProcessesController:
                     process = Process(p.pid)
                 else:
                     process = self._process_map[p.pid]
-                process.update(p)
+                try:
+                    process.update(p)
+                except psutil.NoSuchProcess:
+                    continue
             if thread_parent is not None:
                 process.ppid = thread_parent.pid
                 process.num_threads = -1
@@ -259,17 +271,23 @@ class Application:
         urwid.Button.button_left = urwid.Text("")
         urwid.Button.button_right = urwid.Text("")
 
-        self.w_pause = urwid.Button([('normal', 'F2 '), ('foot', ' Pause ')])
-        urwid.connect_signal(self.w_pause, 'click', self.pause)
+        self._paused = False
+        self.w_pause = urwid.Button("")
+        urwid.connect_signal(self.w_pause, 'click', lambda _: self.pause())
+        self.pause(toggle=False)
 
-        self.w_tree = urwid.Button([('normal', 'F3 '), ('foot', ' Flat ')])
-        urwid.connect_signal(self.w_tree, 'click', self.tree)
+        self._tree = True
+        self.w_tree = urwid.Button("")
+        urwid.connect_signal(self.w_tree, 'click', lambda _: self.tree())
+        self.tree(toggle=False)
 
-        self.w_thread = urwid.Button([('normal', 'F4 '), ('foot', ' Threads ')])
-        urwid.connect_signal(self.w_thread, 'click', self.thread)
+        self._thread = False
+        self.w_thread = urwid.Button("")
+        urwid.connect_signal(self.w_thread, 'click', lambda _: self.thread())
+        self.thread(toggle=False)
 
         self.w_quit = urwid.Button([('normal', 'F10 '), ('foot', ' Quit ')])
-        urwid.connect_signal(self.w_quit, 'click', self.quit)
+        urwid.connect_signal(self.w_quit, 'click', lambda _: self.quit())
 
         # widgets
         self.buttons = urwid.Columns([
@@ -281,9 +299,6 @@ class Application:
         self.processes_list = ProcessPanel(self.processes)
         self.main_widget = urwid.Frame(self.processes_list, footer=self.buttons)
 
-        self._tree = True
-        self._paused = False
-        self._thread = False
         self.loop = urwid.MainLoop(
             self.main_widget,
             self.palette,
@@ -300,26 +315,29 @@ class Application:
     def start(self):
         self.loop.run()
 
-    def pause(self, key=None):
-        text_map = {False: " Pause ", True: " Unpause "}
-        self._paused = not self._paused
+    def pause(self, *, toggle=True):
+        if toggle:
+            self._paused = not self._paused
+        text_map = {False: " [ ] Pause ", True: " [x] Pause "}
         text = text_map[self._paused]
         self.w_pause.set_label([('normal', 'F2 '), ('foot', text)])
 
-    def quit(self, key=None):
-        raise urwid.ExitMainLoop()
-
-    def tree(self, key=None):
-        text_map = {False: " Tree ", True: " Flat "}
-        self._tree = not self._tree
+    def tree(self, *, toggle=True):
+        if toggle:
+            self._tree = not self._tree
+        text_map = {False: " [ ] Tree ", True: " [x] Tree "}
         text = text_map[self._tree]
         self.w_tree.set_label([('normal', 'F3 '), ('foot', text)])
 
-    def thread(self, key=None):
-        text_map = {False: " Threads ", True: " No Threads "}
-        self._thread = not self._thread
+    def thread(self, *, toggle=True):
+        if toggle:
+            self._thread = not self._thread
+        text_map = {False: " [ ] Threads ", True: " [x] Threads "}
         text = text_map[self._thread]
         self.w_thread.set_label([('normal', 'F4 '), ('foot', text)])
+
+    def quit(self):
+        raise urwid.ExitMainLoop()
 
     def handle_input(self, key):
         if type(key) == str:
