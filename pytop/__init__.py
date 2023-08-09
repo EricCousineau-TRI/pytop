@@ -54,21 +54,25 @@ def custom_process_sorting_key(p):
 
 def custom_process_filter(p):
     cmd = p.full_command
-    if "bazel(anzu)" in cmd:
+    if "robot_control_main" in cmd:
+        return True
+    else:
         return False
-    if "java" in cmd:
-        return False
-    if "/anzu/" in cmd:
-        return True
-    if "ksoftirqd" in cmd:
-        return True
-    if "nv_queue" in cmd:
-        return True
-    if "nvidia" in cmd:
-        return True
-    if affinity_str(p.cpu_affinity) != "":
-        return True
-    return False
+    # if "bazel(anzu)" in cmd:
+    #     return False
+    # if "java" in cmd:
+    #     return False
+    # if "/anzu/" in cmd:
+    #     return True
+    # if "ksoftirqd" in cmd:
+    #     return True
+    # if "nv_queue" in cmd:
+    #     return True
+    # if "nvidia" in cmd:
+    #     return True
+    # if affinity_str(p.cpu_affinity) != "":
+    #     return True
+    # return False
 
 
 def num_threads_str(value):
@@ -81,7 +85,7 @@ def num_threads_str(value):
 def get_cols():
     return [
         ProcessColumn("USER", "{:<11}", lambda pr: f"{pr.user[:9]}"),
-        ProcessColumn("PID", "{:<7}", lambda pr: f"{pr.pid}"),
+        ProcessColumn("PID", "{:<12}", lambda pr: f"{pr.pid}"),
         ProcessColumn("CPU%", "{:<10}", lambda pr: f"{pr.cpu_percent}"),
         ProcessColumn("NLWP", "{:<6}", lambda pr: num_threads_str(pr.num_threads)),
         ProcessColumn("Sched", "{:<10}", lambda pr: sched_str(pr.scheduler)),
@@ -281,7 +285,7 @@ class Application:
         urwid.connect_signal(self.w_tree, 'click', lambda _: self.tree())
         self.tree(toggle=False)
 
-        self._thread = False
+        self._thread = True
         self.w_thread = urwid.Button("")
         urwid.connect_signal(self.w_thread, 'click', lambda _: self.thread())
         self.thread(toggle=False)
