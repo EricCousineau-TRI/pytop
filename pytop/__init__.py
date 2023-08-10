@@ -54,10 +54,14 @@ def custom_process_sorting_key(p):
 
 def custom_process_filter(p):
     cmd = p.full_command
-    if "robot_control_main" in cmd:
+    if p.user != "root" and affinity_str(p.cpu_affinity) != "":
         return True
     else:
         return False
+    # if "robot_control_main" in cmd or "haption_bridge" in cmd:
+    #     return True
+    # else:
+    #     return False
     # if "bazel(anzu)" in cmd:
     #     return False
     # if "java" in cmd:
